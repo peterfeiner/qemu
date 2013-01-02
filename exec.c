@@ -806,7 +806,7 @@ void qemu_flush_coalesced_mmio_buffer(void)
 
 #define HUGETLBFS_MAGIC       0x958458f6
 
-static long gethugepagesize(const char *path)
+static long getfspagesize(const char *path, int want_hugetlbfs)
 {
     struct statfs fs;
     int ret;
@@ -820,7 +820,7 @@ static long gethugepagesize(const char *path)
         return 0;
     }
 
-    if (fs.f_type != HUGETLBFS_MAGIC)
+    if (want_hugetlbfs && fs.f_type != HUGETLBFS_MAGIC)
         fprintf(stderr, "Warning: path not on HugeTLBFS: %s\n", path);
 
     return fs.f_bsize;
@@ -833,17 +833,15 @@ static void *file_ram_alloc(RAMBlock *block,
     char *filename;
     void *area;
     int fd;
-#ifdef MAP_POPULATE
     int flags;
-#endif
-    unsigned long hpagesize;
+    unsigned long pagesize;
 
-    hpagesize = gethugepagesize(path);
-    if (!hpagesize) {
+    pagesize = getfspagesize(path, mem_hugetlbfs);
+    if (!pagesize) {
         return NULL;
     }
 
-    if (memory < hpagesize) {
+    if (memory < pagesize) {
         return NULL;
     }
 
@@ -852,20 +850,35 @@ static void *file_ram_alloc(RAMBlock *block,
         return NULL;
     }
 
-    if (asprintf(&filename, "%s/qemu_back_mem.XXXXXX", path) == -1) {
+    if (asprintf(&filename, "%s/qemu_back_mem.%"PRIx64"+%"PRIx64".%s",
+                 path, block->offset, memory, block->mr->name) == -1) {
         return NULL;
     }
 
-    fd = mkstemp(filename);
+    if (mem_temp) {
+        if (asprintf(&filename, "%s.XXXXXX", filename) == -1) {
+            return NULL;
+        }
+        fd = mkstemp(filename);
+    } else {
+        flags = O_RDWR | O_CLOEXEC | (mem_create ? O_CREAT : 0);
+        fd = open(filename, flags, 0600);
+    }
+
     if (fd < 0) {
-        perror("unable to create backing store for hugepages");
+        fprintf(stderr, "unable to create backing store %s "
+                "for guest memory: %s\n", filename, strerror(errno));
         free(filename);
         return NULL;
     }
-    unlink(filename);
+
+    if (mem_temp) {
+        unlink(filename);
+    }
+
     free(filename);
 
-    memory = (memory+hpagesize-1) & ~(hpagesize-1);
+    memory = (memory+pagesize-1) & ~(pagesize-1);
 
     /*
      * ftruncate is not supported by hugetlbfs in older
@@ -876,16 +889,16 @@ static void *file_ram_alloc(RAMBlock *block,
     if (ftruncate(fd, memory))
         perror("ftruncate");
 
+    flags = mem_shared ? MAP_SHARED : MAP_PRIVATE;
 #ifdef MAP_POPULATE
     /* NB: MAP_POPULATE won't exhaustively alloc all phys pages in the case
-     * MAP_PRIVATE is requested.  For mem_prealloc we mmap as MAP_SHARED
+     * MAP_PRIVATE is requested.  For mem_prealloc we always mmap as MAP_SHARED
      * to sidestep this quirk.
      */
-    flags = mem_prealloc ? MAP_POPULATE | MAP_SHARED : MAP_PRIVATE;
-    area = mmap(0, memory, PROT_READ | PROT_WRITE, flags, fd, 0);
-#else
-    area = mmap(0, memory, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (mem_prealloc)
+        flags = MAP_POPULATE | MAP_SHARED;
 #endif
+    area = mmap(0, memory, PROT_READ | PROT_WRITE, flags, fd, 0);
     if (area == MAP_FAILED) {
         perror("file_ram_alloc: can't mmap RAM pages");
         close(fd);
@@ -1021,6 +1034,10 @@ ram_addr_t qemu_ram_alloc_from_ptr(ram_addr_t size, void *host,
 #if defined (__linux__) && !defined(TARGET_S390X)
             new_block->host = file_ram_alloc(new_block, size, mem_path);
             if (!new_block->host) {
+                if (!mem_fallback) {
+                    fprintf(stderr, "failed to allocate ram file for %s\n", mr->name);
+                    exit(1);
+                }
                 new_block->host = qemu_vmalloc(size);
                 memory_try_enable_merging(new_block->host, size);
             }
@@ -1135,11 +1152,10 @@ void qemu_ram_remap(ram_addr_t addr, ram_addr_t length)
                 if (mem_path) {
 #if defined(__linux__) && !defined(TARGET_S390X)
                     if (block->fd) {
+                        flags = mem_shared ? MAP_SHARED : MAP_PRIVATE;
 #ifdef MAP_POPULATE
-                        flags |= mem_prealloc ? MAP_POPULATE | MAP_SHARED :
-                            MAP_PRIVATE;
-#else
-                        flags |= MAP_PRIVATE;
+                        if (mem_prealloc)
+                            flags = MAP_POPULATE | MAP_SHARED;
 #endif
                         area = mmap(vaddr, length, PROT_READ | PROT_WRITE,
                                     flags, block->fd, offset);

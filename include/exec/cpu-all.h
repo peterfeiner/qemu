@@ -500,6 +500,11 @@ typedef struct RAMList {
 extern RAMList ram_list;
 
 extern const char *mem_path;
+extern int mem_temp;
+extern int mem_create;
+extern int mem_fallback;
+extern int mem_shared;
+extern int mem_hugetlbfs;
 extern int mem_prealloc;
 
 /* Flags stored in the low bits of the TLB virtual address.  These are

@@ -647,6 +647,31 @@ static QemuOptsList qemu_object_opts = {
     },
 };
 
+static QemuOptsList qemu_mempath_opts = {
+    .name = "mempath",
+    .implied_opt_name = "path",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_mempath_opts.head),
+    .desc = {
+        {
+            .name = "path",
+            .type = QEMU_OPT_STRING,
+        },{
+            .name = "mmap",
+            .type = QEMU_OPT_STRING,
+        },{
+            .name = "mode",
+            .type = QEMU_OPT_STRING,
+        },{
+            .name = "anyfs",
+            .type = QEMU_OPT_BOOL,
+        },{
+            .name = "fallback",
+            .type = QEMU_OPT_BOOL,
+        },
+        { /* end of list */ }
+    },
+};
+
 static QemuOptsList *vm_config_groups[32] = {
     &qemu_drive_opts,
     &qemu_chardev_opts,
@@ -664,6 +689,7 @@ static QemuOptsList *vm_config_groups[32] = {
     &qemu_sandbox_opts,
     &qemu_add_fd_opts,
     &qemu_object_opts,
+    &qemu_mempath_opts,
     NULL,
 };
 

@@ -185,6 +185,11 @@ static int display_remote;
 const char* keyboard_layout = NULL;
 ram_addr_t ram_size;
 const char *mem_path = NULL;
+int mem_shared = 0;
+int mem_hugetlbfs = 1;
+int mem_temp = 1;
+int mem_create = 1;
+int mem_fallback = 1;
 #ifdef MAP_POPULATE
 int mem_prealloc = 0; /* force preallocation of physical target memory */
 #endif
@@ -2933,9 +2938,43 @@ int main(int argc, char **argv, char **envp)
                 }
                 break;
             }
-            case QEMU_OPTION_mempath:
-                mem_path = optarg;
+            case QEMU_OPTION_mempath: {
+                const char *value;
+                opts = qemu_opts_parse(qemu_find_opts("mempath"), optarg, 1);
+                if (!opts) {
+                    exit(1);
+                }
+
+                mem_path = qemu_opt_get(opts, "path");
+                mem_hugetlbfs = !qemu_opt_get_bool(opts, "anyfs", 0);
+                mem_fallback = qemu_opt_get_bool(opts, "fallback", 1);
+
+                value = qemu_opt_get(opts, "mode");
+                if (value == NULL || !strcmp(value, "temp")) {
+                    mem_temp = 1;
+                } else {
+                    mem_temp = 0;
+                    if (!strcmp(value, "create")) {
+                        mem_create = 1;
+                    } else if (!strcmp(value, "open")) {
+                        mem_create = 0;
+                    } else {
+                        fprintf(stderr, "Invalid -mem-path mode value.\n");
+                        exit(1);
+                    }
+                }
+
+                value = qemu_opt_get(opts, "mmap");
+                if (value == NULL || !strcmp(value, "private")) {
+                    mem_shared = 0;
+                } else if (!strcmp(value, "shared")) {
+                    mem_shared = 1;
+                } else {
+                    fprintf(stderr, "Invalid -mem-path mmap value.\n");
+                    exit(1);
+                }
                 break;
+            }
 #ifdef MAP_POPULATE
             case QEMU_OPTION_mem_prealloc:
                 mem_prealloc = 1;

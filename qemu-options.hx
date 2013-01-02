@@ -443,10 +443,28 @@ gigabytes respectively.
 ETEXI
 
 DEF("mem-path", HAS_ARG, QEMU_OPTION_mempath,
-    "-mem-path FILE  provide backing storage for guest RAM\n", QEMU_ARCH_ALL)
+    "-mem-path path[,mmap=private|shared][,mode=temp|open|create][,nofallback][,anyfs]\n"
+    "          provide backing storage for guest RAM\n",
+    QEMU_ARCH_ALL)
 STEXI
-@item -mem-path @var{path}
-Allocate guest RAM from a temporarily created file in @var{path}.
+@item -mem-path @var{path}[,mmap=private|shared][,mode=temp|open|create][,nofallback][,anyfs]
+Allocate guest RAM from files in @var{path}.
+@item mmap=private|shared
+Specifies how backing files are mmap'd. "private" indicates a COW mapping, thus
+leaving the underlying file unchanged. "shared" indicates a write-through
+mapping, thus reflecting the guest's memory in the underlying file. Default is
+private.
+@item mode=temp|open|create
+Determines how backing files are created and opened. "temp" indicates that
+unique temporary files are created in @var{path} and unlinked after opening.
+Both "create" and "open" indicate that deterministic names are used and the
+files aren't unlinked. The The difference between "create" and "open" is that
+"open" expects the files to already exist. Default is temp.
+@item nofallback
+Fail if backing files cannot be used for guest RAM (e.g., permission error, bad
+path). By default, RAM allocation falls back to normal method.
+@item anyfs
+Suppressing warnings if @var{path} isn't on a hugetlbfs filesystem.
 ETEXI
 
 #ifdef MAP_POPULATE
